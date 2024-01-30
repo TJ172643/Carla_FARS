@@ -9,75 +9,68 @@
 import glob
 import os
 import sys
-
 import carla
-
 import random
 import time
 
-
+## FARS CASE Description
+## No. 10327
+## veh1: 
+## TRAV_SP:15mph P_CRASH1:11/Turning Left P_CRASH2:15/Turning Left IMPACT1 = 3
+## veh2: 
+## TRAV_SP:45mph P_CRASH1:1/Going Straight P_CRASH2:62/From opposite direction  over left lane line IMPACT1 = 12
+## Weather: Clear Time: 12:00 Road: T-Intersection
 def main():
     actor_list = []
+    client = carla.Client('localhost', 2000)
+    client.set_timeout(2.0)
+    time.sleep(2)
+
+    world = client.get_world()
+    # change map to Town04
+    world = client.load_world('Town04')
+    # 设置同步模式
+    settings = world.get_settings()  # 获取当前世界的设置对象
 
     try:
-        client = carla.Client('localhost', 2000)
-        client.set_timeout(2.0)
-
-        # Once we have a client we can retrieve the world that is currently
-        # running.
-        world = client.get_world()
-        # change map
-        world = client.load_world('Town04')
-
-        # The world contains the list blueprints that we can use for adding new
-        # actors into the simulation.
+        
+        # settings.fixed_delta_seconds = 0.05  # 设置固定的时间步长为0.05秒
+        settings.synchronous_mode = True  # 启用同步模式
+        # set weather to clear
+        world.set_weather(carla.WeatherParameters.ClearNoon)
         blueprint_library = world.get_blueprint_library()
-
-        # Now let's filter all the blueprints of type 'vehicle' and choose one
-        # at random.
         bp = random.choice(blueprint_library.filter('vehicle'))
+        transform1 = carla.Transform(carla.Location(x=242.39, y=-246.20, z=0.2), carla.Rotation(yaw=0 ))
+        transform2 = carla.Transform(carla.Location(x=281.73, y=-249.87, z=0.2), carla.Rotation(yaw=180))
+        vehicle1 = world.spawn_actor(bp, transform1)
+        vehicle2 = world.spawn_actor(bp, transform2)
+        # add a spectator
+        spectator = world.get_spectator()
+        spectator.set_transform(carla.Transform(carla.Location(x=242.39, y=-246.20, z=70.0), carla.Rotation(pitch=-90)))
+        # set vehicle1's target velocity as 15mph
+        vehicle1.set_target_velocity(carla.Vector3D(x=6.7056, y=0.0, z=0.0))
+        # set vehicle2's target speed as 45mph
+        vehicle2.set_target_velocity(carla.Vector3D(x=-20.1168, y=0.0, z=0.0))
 
-        # A blueprint contains the list of attributes that define a vehicle's
-        # instance, we can read them and modify some of them. For instance,
-        # let's randomize its color.
-        if bp.has_attribute('color'):
-            color = random.choice(bp.get_attribute('color').recommended_values)
-            bp.set_attribute('color', color)
-
-        # Now we need to give an initial transform to the vehicle. We choose a
-        # random transform from the list of recommended spawn points of the map.
-        transform = random.choice(world.get_map().get_spawn_points())
-
-        # So let's tell the world to spawn the vehicle.
-        vehicle = world.spawn_actor(bp, transform)
-
-        actor_list.append(vehicle)
-        print('created %s' % vehicle.type_id)
-
-        # Let's put the vehicle to drive around.
-        vehicle.set_autopilot(True)
-
-        transform.location += carla.Location(x=40, y=-3.2)
-        transform.rotation.yaw = -180.0
-        for _ in range(0, 10):
-            # transform.location.x += 8.0
-            transform = random.choice(world.get_map().get_spawn_points())
+        actor_list.append(vehicle1)
+        actor_list.append(vehicle2)
+        print('created %s' % vehicle1.type_id)
+        print('created %s' % vehicle2.type_id)
+        # detect if vehicle1 in intersection area in tick
+        while True:
+            world.tick()
+            if vehicle1.get_location().x > 246 and vehicle1.get_location().x < 266 and vehicle1.get_location().y > -258 and vehicle1.get_location().y < -238:
+                print('vehicle1 in intersection area')
+                # vehicle1 turn left
+                vehicle1.apply_control(carla.VehicleControl(throttle=1.0, steer=-0.5))
 
 
-            bp = random.choice(blueprint_library.filter('vehicle'))
 
-            # This time we are using try_spawn_actor. If the spot is already
-            # occupied by another object, the function will return None.
-            npc = world.try_spawn_actor(bp, transform)
-            if npc is not None:
-                actor_list.append(npc)
-                npc.set_autopilot(True)
-                print('created %s' % npc.type_id)
 
         time.sleep(60)
 
     finally:
-
+        settings.synchronous_mode = False  # 取消同步模式
         print('destroying actors')
         client.apply_batch([carla.command.DestroyActor(x) for x in actor_list])
         print('done.')
